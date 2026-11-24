@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import CampoUsername from '../components/CampoUsername'
 import { useAuth } from '../hooks/useAuth'
+import { useDisponibilidadeUsername } from '../hooks/useDisponibilidadeUsername'
+import { MENSAGEM_PERMISSAO_NEGADA, mensagemUsernameIndisponivel } from '../services/usernames'
+import { USERNAME_MAX, USERNAME_MIN, normalizarUsername, usernameValido } from '../utils/arquibancada'
 
 const CLUBES_BRASILEIROS = [
   'Athletico-PR',
@@ -31,6 +35,7 @@ const MENSAGENS_ERRO = {
   'auth/invalid-email': 'O e-mail informado não é válido.',
   'auth/weak-password': 'A senha deve ter pelo menos 6 caracteres.',
   'auth/network-request-failed': 'Falha de conexão. Verifique a sua internet e tente novamente.',
+  'permission-denied': MENSAGEM_PERMISSAO_NEGADA,
 }
 
 const inputClass =
@@ -54,6 +59,7 @@ export default function RegisterPage() {
   const [cadastrou, setCadastrou] = useState(false)
   const { signUp, user } = useAuth()
   const navigate = useNavigate()
+  const estadoUsername = useDisponibilidadeUsername(username)
 
   // Vai para o painel so quando o contexto ja reconhece o utilizador autenticado
   useEffect(() => {
@@ -79,18 +85,28 @@ export default function RegisterPage() {
     setError('')
 
     const nomeLimpo = nome.replace(/\s+/g, ' ').trim()
-    if (nomeLimpo.length < 2) {
-      setError('Informe o seu nome completo.')
+    if (nomeLimpo.split(' ').length < 2 || nomeLimpo.length < 5) {
+      setError('Informe o seu nome completo, com nome e sobrenome.')
       return
     }
 
-    const cleanUsername = username
-      .trim()
-      .toLowerCase()
-      .replace(/^@+/, '')
-      .replace(/\s+/g, '_')
-    if (!/^[a-z0-9._]{3,24}$/.test(cleanUsername)) {
-      setError('O nome de usuário deve ter de 3 a 24 caracteres: letras, números, ponto ou sublinhado.')
+    const cleanUsername = normalizarUsername(username)
+    if (!usernameValido(cleanUsername)) {
+      setError(
+        `O nome de usuário deve ter de ${USERNAME_MIN} a ${USERNAME_MAX} caracteres: letras minúsculas, números, ponto ou sublinhado.`,
+      )
+      return
+    }
+
+    // Bloqueio imediato quando a checagem em tempo real já encontrou o @usuario ocupado.
+    // A confirmação definitiva acontece no AuthContext, no momento da gravação.
+    if (estadoUsername === 'indisponivel') {
+      setError(mensagemUsernameIndisponivel(cleanUsername))
+      return
+    }
+
+    if (!email.trim()) {
+      setError('Informe o seu e-mail.')
       return
     }
 
@@ -161,7 +177,7 @@ export default function RegisterPage() {
                 value={nome}
                 onChange={(e) => setNome(e.target.value)}
                 required
-                placeholder="Ex.: Débora Gomes"
+                placeholder="Ex.: Débora Silva Anjo"
                 className={inputClass}
               />
             </div>
@@ -170,15 +186,13 @@ export default function RegisterPage() {
               <label htmlFor="username" className={labelClass}>
                 Nome de usuário
               </label>
-              <input
+              <CampoUsername
                 id="username"
-                type="text"
-                autoComplete="username"
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                required
-                placeholder="Ex.: debora_crf"
-                className={inputClass}
+                onChange={setUsername}
+                estado={estadoUsername}
+                nome={nome}
+                inputClassName={inputClass}
               />
             </div>
 
@@ -277,7 +291,7 @@ export default function RegisterPage() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || estadoUsername === 'indisponivel'}
               className="mt-2 h-11 w-full rounded-lg bg-slate-900 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading ? 'Criando conta...' : 'Criar conta'}

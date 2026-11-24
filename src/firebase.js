@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { getDatabase } from "firebase/database";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -14,8 +15,22 @@ const firebaseConfig = {
 
 export const isFirebaseConfigured = Boolean(firebaseConfig.apiKey);
 
+// O chat global depende do Realtime Database, que exige a URL do banco
+export const isRealtimeDatabaseConfigured =
+  isFirebaseConfigured && Boolean(firebaseConfig.databaseURL);
+
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-export { app, auth, db };
+let rtdb = null;
+if (isRealtimeDatabaseConfigured) {
+  try {
+    rtdb = getDatabase(app);
+  } catch (error) {
+    console.error("Não foi possível iniciar o Realtime Database.", error);
+    rtdb = null;
+  }
+}
+
+export { app, auth, db, rtdb };

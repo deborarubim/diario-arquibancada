@@ -1,0 +1,83 @@
+rules_version = '2';
+
+/*
+  Regras do Firestore - Diário de Arquibancada
+
+  Coleções:
+  - users/{userId}         perfil privado de cada torcedor
+  - usernames/{username}   reserva que garante @usuario único: { uid, createdAt }
+  - jogos/{gameId}         partidas registradas por cada torcedor
+
+  Publicação: firebase deploy --only firestore:rules
+*/
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function autenticado() {
+      return request.auth != null;
+    }
+
+    function ehDono(userId) {
+      return autenticado() && request.auth.uid == userId;
+    }
+
+    function caminhoUsername(username) {
+      return /databases/$(database)/documents/usernames/$(username);
+    }
+
+    // A reserva do @usuario precisa existir (já considerando as escritas do mesmo lote
+    // ou transação) e pertencer ao utilizador que está a gravar o perfil.
+    function usernameReservadoPeloDono(username) {
+      return username is string
+        && existsAfter(caminhoUsername(username))
+        && getAfter(caminhoUsername(username)).data.uid == request.auth.uid;
+    }
+
+    // O campo username do perfil só pode ficar vazio, manter o valor anterior
+    // ou apontar para uma reserva do próprio utilizador.
+    function usernameDoPerfilAceito() {
+      let novo = request.resource.data.get('username', '');
+      let anterior = resource == null ? '' : resource.data.get('username', '');
+      return novo == '' || novo == anterior || usernameReservadoPeloDono(novo);
+    }
+
+    /* ---------------------------- Perfis (privados) ---------------------------- */
+    match /users/{userId} {
+      allow read, delete: if ehDono(userId);
+      allow create, update: if ehDono(userId) && usernameDoPerfilAceito();
+    }
+
+    /* ---------------------------- Reservas de @usuario ---------------------------- */
+    match /usernames/{username} {
+      // Leitura individual pública, para checar disponibilidade na tela de cadastro.
+      // Listar a coleção inteira continua bloqueado.
+      allow get: if true;
+      allow list: if false;
+
+      // Criação apenas se o @usuario ainda não estiver reservado, pelo próprio uid,
+      // com formato válido e somente os campos esperados.
+      allow create: if autenticado()
+        && username.matches('^[a-z0-9._]{3,24}$')
+        && !exists(caminhoUsername(username))
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid', 'createdAt'])
+        && request.resource.data.createdAt == request.time;
+
+      // Uma reserva nunca muda de dono.
+      allow update: if false;
+
+      // Apenas o dono pode liberar o @usuario (ao trocar por outro).
+      allow delete: if autenticado() && resource.data.uid == request.auth.uid;
+    }
+
+    /* ---------------------------- Jogos ---------------------------- */
+    match /jogos/{gameId} {
+      allow read, delete: if autenticado() && resource.data.userId == request.auth.uid;
+      allow create: if autenticado() && request.resource.data.userId == request.auth.uid;
+      allow update: if autenticado()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == request.auth.uid;
+    }
+  }
+}

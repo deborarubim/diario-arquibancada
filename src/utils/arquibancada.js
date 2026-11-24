@@ -63,6 +63,38 @@ export const iniciais = (nome) => {
   return `${partes[0][0]}${partes[partes.length - 1][0]}`.toUpperCase()
 }
 
+/* ------------------------------ Perfil ------------------------------ */
+
+export const USERNAME_MIN = 3
+export const USERNAME_MAX = 24
+
+/*
+  Normaliza o nome de usuario: minusculas, sem acentos, sem espacos,
+  sem "@" e apenas letras, numeros, "." ou "_".
+  Ex.: "  @@Debora CRF " -> "deboracrf"
+*/
+export const normalizarUsername = (valor) =>
+  String(valor ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/@/g, '')
+    .replace(/\s+/g, '')
+    .replace(/[^a-z0-9._]/g, '')
+    .slice(0, USERNAME_MAX)
+
+export const usernameValido = (valor) =>
+  new RegExp(`^[a-z0-9._]{${USERNAME_MIN},${USERNAME_MAX}}$`).test(String(valor ?? ''))
+
+export const primeiroNome = (nome) => limparTexto(nome).split(' ')[0] || ''
+
+// Nome exibido no chat: "PrimeiroNome @usuario", com fallback para contas sem @usuario
+export const formatarAutor = (nome, username) => {
+  const primeiro = primeiroNome(nome) || 'Torcedor'
+  const usuario = normalizarUsername(username)
+  return usuario ? `${primeiro} @${usuario}` : primeiro
+}
+
 /* ------------------------------ Campeonatos ------------------------------ */
 
 // Nomes alternativos que devem ser exibidos e agrupados com o nome oficial

@@ -15,6 +15,7 @@ import {
   plural,
   somarValores,
 } from '../utils/arquibancada'
+import { POSICAO_PAINEL, visibilidadePainel } from './painelFlutuante'
 
 /* ================================================================== */
 /* Motor de respostas (local, sem APIs externas)                        */
@@ -166,7 +167,7 @@ export function responderPergunta(pergunta, contexto = {}) {
   const pedeInstrucao = tem(/\b(como|onde|de que forma|passo a passo|consigo|posso|da para)\b/)
 
   if (pedeInstrucao) {
-    if (tem(/compr|pago|paguei|marc/)) {
+    if (tem(/compr|\bpago\b|paguei|\bmarc/)) {
       return {
         texto: [
           'Para marcar um ingresso como comprado:',
@@ -184,7 +185,7 @@ export function responderPergunta(pergunta, contexto = {}) {
       return {
         texto: [
           'Para registrar uma partida:',
-          '1. Clique em Novo jogo, ao lado do botão Assistente.',
+          '1. Clique em Novo jogo, no topo da secção Partidas.',
           '2. Escolha o campeonato, o adversário, a data e o estádio.',
           '3. Defina a situação do ingresso (Aguardando ou Comprado) e, se quiser, o valor.',
           '4. Clique em Salvar jogo.',
@@ -192,6 +193,24 @@ export function responderPergunta(pergunta, contexto = {}) {
           'O painel muda automaticamente para o mês da partida registrada.',
         ].join('\n'),
         sugestoes: ['Como marco um ingresso como comprado?', 'Qual é o meu próximo jogo?'],
+      }
+    }
+    if (tem(/\bnome\b|usuario|perfil/)) {
+      return {
+        texto: 'Clique nas suas iniciais, no canto superior direito, para editar o nome completo e o @usuario usado no chat.',
+      }
+    }
+    if (tem(/\bchat\b|mensage|convers|sala|torcedores/)) {
+      return {
+        texto: [
+          'O Chat Global fica no dock flutuante, no canto inferior direito da tela, acima do Assistente.',
+          '1. Clique em Chat Global para abrir a sala, aberta 24 horas para todos os torcedores.',
+          '2. Escolha uma tag rápida (Geral, Vou ao jogo hoje ou Ingresso / Setor), escreva a mensagem e envie.',
+          '3. Para apagar uma mensagem sua, clique em Apagar, logo abaixo dela, e confirme.',
+          '',
+          'As suas mensagens aparecem com o seu primeiro nome e o seu @usuario. Pode editar ambos clicando nas suas iniciais, no topo do painel.',
+        ].join('\n'),
+        sugestoes: ['Qual é o meu próximo jogo?'],
       }
     }
     if (tem(/exclu|apag|remov|delet/)) {
@@ -216,11 +235,6 @@ export function responderPergunta(pergunta, contexto = {}) {
           'Na secção Partidas, os filtros Todas, Compradas e Aguardando refinam a lista do período escolhido.',
         ].join('\n'),
         sugestoes: ['Resumo do período selecionado'],
-      }
-    }
-    if (tem(/\bnome\b/)) {
-      return {
-        texto: 'Clique nas suas iniciais, no canto superior direito, para adicionar ou editar o nome exibido no painel.',
       }
     }
     if (tem(/assistente|voce|funciona|usar/)) {
@@ -667,6 +681,7 @@ function respostaAjuda() {
       '- Qual campeonato mais acompanhei? Contra qual adversário mais fui?',
       '- Qual foi o ingresso mais caro? Qual é a minha média por jogo?',
       '- Como marco um ingresso como comprado? Como excluo um jogo?',
+      '- Como uso o chat global?',
     ].join('\n'),
     sugestoes: PERGUNTAS_RAPIDAS.slice(0, 3),
   }
@@ -752,9 +767,7 @@ export default function AssistenteArquibancada({ aberto, onFechar, games = [], s
       onKeyDown={(event) => {
         if (event.key === 'Escape') onFechar()
       }}
-      className={`fixed inset-x-3 bottom-3 z-40 flex h-[min(620px,calc(100dvh-1.5rem))] flex-col overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_24px_56px_-12px_rgba(15,23,42,0.22),0_8px_20px_-8px_rgba(15,23,42,0.10)] transition-[opacity,transform] duration-200 ease-out sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[400px] sm:h-[min(620px,calc(100dvh-7rem))] ${
-        aberto ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-3 opacity-0'
-      }`}
+      className={`${POSICAO_PAINEL} ${visibilidadePainel(aberto)}`}
     >
       {/* Cabecalho */}
       <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">

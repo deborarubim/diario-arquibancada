@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   addDoc,
@@ -14,6 +14,10 @@ import {
 import { db } from '../firebase'
 import { useAuth } from '../hooks/useAuth'
 import AssistenteArquibancada from '../components/AssistenteArquibancada'
+import CampoUsername from '../components/CampoUsername'
+import ChatGlobal from '../components/ChatGlobal'
+import { useDisponibilidadeUsername } from '../hooks/useDisponibilidadeUsername'
+import { MENSAGEM_PERMISSAO_NEGADA, mensagemUsernameIndisponivel } from '../services/usernames'
 import {
   MESES_ABREVIADOS,
   OPCOES_MES,
@@ -27,7 +31,6 @@ import {
   formatarDataBr,
   iniciais,
   jogosDoPeriodo,
-  limparTexto,
   normalizarJogo,
   ordenarAgenda,
   parseCurrency,
@@ -213,6 +216,16 @@ const IconeAssistente = ({ className = '' }) => (
   </svg>
 )
 
+const IconeChatGlobal = ({ className = '' }) => (
+  <svg className={className} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+    <path
+      d="M2.75 6.25A2.25 2.25 0 015 4h6.5a2.25 2.25 0 012.25 2.25v3.5A2.25 2.25 0 0111.5 12H8l-3 2.5V12A2.25 2.25 0 012.75 9.75v-3.5z"
+      strokeLinejoin="round"
+    />
+    <path d="M13.75 7.5H15a2.25 2.25 0 012.25 2.25v3.5A2.25 2.25 0 0115 15.5v2l-2.5-2H10" strokeLinejoin="round" strokeLinecap="round" />
+  </svg>
+)
+
 /* ================================================================== */
 /* Componentes de apoio                                                 */
 /* ================================================================== */
@@ -328,6 +341,42 @@ function CampoValor({ id, value, onChange, placeholder = '0,00', autoFocus = fal
         className={`${CAMPO} pl-10 tabular-nums`}
       />
     </div>
+  )
+}
+
+/* ================================================================== */
+/* Dock flutuante                                                       */
+/* ================================================================== */
+
+function BotaoDock({ ativo, onClick, rotulo, descricao, icone, aoVivo = false, contador = 0 }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={ativo}
+      aria-label={contador > 0 ? `${descricao}, ${contador} novas mensagens` : descricao}
+      title={descricao}
+      className={`relative flex h-[3.75rem] w-[4.25rem] flex-col items-center justify-center gap-1.5 rounded-xl transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-900/15 ${
+        ativo ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+      }`}
+    >
+      <span className="relative">
+        {icone}
+        {aoVivo ? (
+          <span
+            className={`absolute -right-1 -top-0.5 h-2 w-2 animate-pulse rounded-full bg-emerald-500 ring-2 ${
+              ativo ? 'ring-slate-900' : 'ring-white'
+            }`}
+          />
+        ) : null}
+      </span>
+      <span className="whitespace-nowrap text-[10.5px] font-medium leading-none">{rotulo}</span>
+      {contador > 0 ? (
+        <span className="absolute right-1 top-1 min-w-[1.125rem] rounded-full bg-rose-600 px-1 text-center text-[10px] font-semibold leading-[1.125rem] text-white tabular-nums">
+          {contador > 9 ? '9+' : contador}
+        </span>
+      ) : null}
+    </button>
   )
 }
 
@@ -644,7 +693,16 @@ const FILTROS_STATUS = [
 ]
 
 export default function DashboardPage() {
-  const { user, profile, logout, atualizarNome } = useAuth()
+  const {
+    user,
+    profile,
+    logout,
+    atualizarPerfil,
+    nome: nomeTorcedor,
+    username,
+    usernameConflito,
+    usernameAnterior,
+  } = useAuth()
   const navigate = useNavigate()
   const timeUsuario = profile?.time || ''
 
@@ -663,7 +721,11 @@ export default function DashboardPage() {
   const [selectedYear, setSelectedYear] = useState(anoAtual)
   const [filtroStatus, setFiltroStatus] = useState('todas')
 
-  const [assistenteAberto, setAssistenteAberto] = useState(false)
+  // Paineis flutuantes do dock: apenas um aberto por vez ('chat' | 'assistente' | null)
+  const [painelAberto, setPainelAberto] = useState(null)
+  const [chatNaoLidas, setChatNaoLidas] = useState(0)
+  const alternarPainel = (painel) => setPainelAberto((atual) => (atual === painel ? null : painel))
+  const fecharPainel = useCallback(() => setPainelAberto(null), [])
 
   // Modal de novo jogo
   const [createModalOpen, setCreateModalOpen] = useState(false)
@@ -680,14 +742,19 @@ export default function DashboardPage() {
   const [erroCompra, setErroCompra] = useState('')
   const [salvandoCompra, setSalvandoCompra] = useState(false)
 
-  // Modal de nome
+  // Modal de perfil (nome completo e @usuario)
   const [nomeModalOpen, setNomeModalOpen] = useState(false)
   const [nomeRascunho, setNomeRascunho] = useState('')
+  const [usernameRascunho, setUsernameRascunho] = useState('')
   const [erroNome, setErroNome] = useState('')
   const [salvandoNome, setSalvandoNome] = useState(false)
+  // Checagem em tempo real do @usuario digitado no modal (apenas com o modal aberto)
+  const estadoUsernameModal = useDisponibilidadeUsername(nomeModalOpen ? usernameRascunho : '', {
+    usernameAtual: username,
+    uid: user?.uid || null,
+  })
 
-  // Nome real do torcedor: campo "nome" do documento users/{uid}
-  const nomeTorcedor = limparTexto(profile?.nome) || limparTexto(user?.displayName)
+  // nomeTorcedor e username vêm do AuthContext (users/{uid}: campos "nome" e "username")
   const corTime = COR_TIME[timeUsuario] || '#334155'
 
   useEffect(() => {
@@ -899,6 +966,7 @@ export default function DashboardPage() {
 
   const abrirNome = () => {
     setNomeRascunho(nomeTorcedor)
+    setUsernameRascunho(username)
     setErroNome('')
     setNomeModalOpen(true)
   }
@@ -906,13 +974,25 @@ export default function DashboardPage() {
   const handleSalvarNome = async (event) => {
     event.preventDefault()
     setErroNome('')
+
+    if (estadoUsernameModal === 'indisponivel') {
+      setErroNome(mensagemUsernameIndisponivel(usernameRascunho))
+      return
+    }
+
     setSalvandoNome(true)
     try {
-      await atualizarNome(nomeRascunho)
+      // Campo de usuário vazio mantém o valor atual (contas antigas podem salvar só o nome).
+      // A unicidade é garantida no AuthContext, numa transação com a coleção usernames.
+      await atualizarPerfil({ nome: nomeRascunho, username: usernameRascunho || undefined })
       setNomeModalOpen(false)
     } catch (nomeError) {
       console.error(nomeError)
-      setErroNome(nomeError?.message || 'Não foi possível salvar o nome.')
+      setErroNome(
+        nomeError?.code === 'permission-denied'
+          ? MENSAGEM_PERMISSAO_NEGADA
+          : nomeError?.message || 'Não foi possível salvar o perfil.',
+      )
     } finally {
       setSalvandoNome(false)
     }
@@ -969,8 +1049,8 @@ export default function DashboardPage() {
             <button
               type="button"
               onClick={abrirNome}
-              title="Editar nome"
-              aria-label="Editar nome"
+              title="Editar perfil"
+              aria-label="Editar perfil"
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-200"
             >
               {iniciais(nomeTorcedor) || (
@@ -990,7 +1070,7 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 pb-24 pt-10 sm:px-6 lg:px-8">
+      <main className="mx-auto max-w-6xl px-4 pb-44 pt-10 sm:px-6 sm:pb-32 lg:px-8">
         {/* ------------------------------ Visao geral ------------------------------ */}
         <section aria-labelledby="titulo-visao-geral">
           <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
@@ -1144,16 +1224,6 @@ export default function DashboardPage() {
                   )
                 })}
               </div>
-
-              <button
-                type="button"
-                onClick={() => setAssistenteAberto((v) => !v)}
-                aria-pressed={assistenteAberto}
-                className={`${BTN_SECUNDARIO} ${assistenteAberto ? 'border-slate-300 bg-slate-50 text-slate-900' : ''}`}
-              >
-                <IconeAssistente className="h-4 w-4" />
-                Assistente
-              </button>
 
               <button type="button" onClick={abrirNovoJogo} className={BTN_PRIMARIO}>
                 <IconeMais className="h-4 w-4" />
@@ -1423,17 +1493,23 @@ export default function DashboardPage() {
         </Modal>
       ) : null}
 
-      {/* ------------------------------ Modal: nome ------------------------------ */}
+      {/* ------------------------------ Modal: perfil ------------------------------ */}
       {nomeModalOpen ? (
         <Modal
-          titulo={nomeTorcedor ? 'Editar nome' : 'Adicionar o seu nome'}
-          descricao="Este é o nome exibido no topo do painel."
+          titulo="Editar perfil"
+          descricao="O nome completo aparece no topo do painel. No chat você aparece como primeiro nome e @usuario."
           onFechar={() => !salvandoNome && setNomeModalOpen(false)}
           largura="max-w-md"
         >
           <form onSubmit={handleSalvarNome} noValidate>
             <div className="space-y-4 px-6 py-5">
               {erroNome ? <AlertaErro mensagem={erroNome} /> : null}
+              {usernameConflito && !erroNome ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-800">
+                  O @{usernameAnterior} que estava no seu perfil pertence a outra conta. Escolha um novo nome de
+                  usuário para voltar a ser identificado no chat.
+                </div>
+              ) : null}
               <div>
                 <label htmlFor="campo-nome" className={ROTULO_CAMPO}>
                   Nome completo
@@ -1445,8 +1521,21 @@ export default function DashboardPage() {
                   autoFocus
                   value={nomeRascunho}
                   onChange={(e) => setNomeRascunho(e.target.value)}
-                  placeholder="Ex.: Débora Gomes"
+                  placeholder="Ex.: Débora Silva Anjo"
                   className={CAMPO}
+                />
+              </div>
+              <div>
+                <label htmlFor="campo-username" className={ROTULO_CAMPO}>
+                  Nome de usuário
+                </label>
+                <CampoUsername
+                  id="campo-username"
+                  value={usernameRascunho}
+                  onChange={setUsernameRascunho}
+                  estado={estadoUsernameModal}
+                  nome={nomeRascunho}
+                  inputClassName={CAMPO}
                 />
               </div>
             </div>
@@ -1454,23 +1543,61 @@ export default function DashboardPage() {
               <button type="button" onClick={() => setNomeModalOpen(false)} className={BTN_SECUNDARIO}>
                 Cancelar
               </button>
-              <button type="submit" disabled={salvandoNome} className={BTN_PRIMARIO}>
-                {salvandoNome ? 'Salvando...' : 'Salvar nome'}
+              <button
+                type="submit"
+                disabled={salvandoNome || estadoUsernameModal === 'indisponivel'}
+                className={BTN_PRIMARIO}
+              >
+                {salvandoNome ? 'Salvando...' : 'Salvar perfil'}
               </button>
             </div>
           </form>
         </Modal>
       ) : null}
 
-      {/* ------------------------------ Assistente ------------------------------ */}
+      {/* ------------------------------ Paineis flutuantes ------------------------------ */}
+      <ChatGlobal
+        aberto={painelAberto === 'chat'}
+        onFechar={fecharPainel}
+        user={user}
+        nome={nomeTorcedor}
+        username={username}
+        onDefinirPerfil={abrirNome}
+        onNaoLidasChange={setChatNaoLidas}
+      />
+
       <AssistenteArquibancada
-        aberto={assistenteAberto}
-        onFechar={() => setAssistenteAberto(false)}
+        aberto={painelAberto === 'assistente'}
+        onFechar={fecharPainel}
         games={games}
         stats={stats}
         nome={nomeTorcedor}
         time={timeUsuario}
       />
+
+      {/* ------------------------------ Dock lateral ------------------------------ */}
+      <nav
+        aria-label="Chat e assistente"
+        className="fixed bottom-5 right-5 z-40 flex flex-col gap-1 rounded-2xl border border-slate-200/70 bg-white/90 p-1.5 shadow-[0_12px_32px_-12px_rgba(15,23,42,0.28),0_2px_6px_-2px_rgba(15,23,42,0.08)] backdrop-blur-md"
+      >
+        <BotaoDock
+          ativo={painelAberto === 'chat'}
+          onClick={() => alternarPainel('chat')}
+          rotulo="Chat Global"
+          descricao="Chat Global, sala ao vivo 24 horas"
+          icone={<IconeChatGlobal className="h-5 w-5" />}
+          aoVivo
+          contador={painelAberto === 'chat' ? 0 : chatNaoLidas}
+        />
+        <span className="mx-2 h-px bg-slate-100" aria-hidden="true" />
+        <BotaoDock
+          ativo={painelAberto === 'assistente'}
+          onClick={() => alternarPainel('assistente')}
+          rotulo="Assistente"
+          descricao="Assistente do painel"
+          icone={<IconeAssistente className="h-5 w-5" />}
+        />
+      </nav>
     </div>
   )
 }

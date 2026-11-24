@@ -1,17 +1,8 @@
 /*
-  Firestore rules example:
-  rules_version = '2';
-  service cloud.firestore {
-    match /databases/{database}/documents {
-      match /users/{userId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
-      }
-      match /jogos/{gameId} {
-        allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
-        allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
-      }
-    }
-  }
+  Regras de segurança:
+  - Firestore (users, usernames, jogos): firestore.rules
+  - Realtime Database (chatGlobal): database.rules.json
+  Publicação: firebase deploy --only firestore:rules,database
 */
 
 import { Navigate, Route, Routes } from 'react-router-dom'
