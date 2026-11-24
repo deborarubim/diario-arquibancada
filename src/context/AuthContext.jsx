@@ -3,6 +3,7 @@ import {
   createUserWithEmailAndPassword,
   deleteUser,
   onAuthStateChanged,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
   updateProfile,
@@ -161,6 +162,46 @@ export function AuthProvider({ children }) {
     Boolean(usernamePerfil) &&
     reservaVerificada.username === usernamePerfil &&
     reservaVerificada.conflito
+
+  /*
+    Recuperação de senha: o Firebase envia um e-mail com o link para criar uma nova senha.
+    - O e-mail sai em português (languageCode).
+    - Depois de redefinir, o link "Continuar" leva de volta à tela de login da aplicação.
+      Se o domínio atual não estiver autorizado no Firebase, reenvia sem esse redirecionamento.
+    - Com a proteção contra enumeração de e-mails do Firebase ativa, a chamada não informa
+      se o e-mail existe; a tela trata o envio sempre com uma mensagem neutra.
+  */
+  const redefinirSenha = async (email) => {
+    if (!auth || !isFirebaseConfigured) {
+      throw new Error(ERRO_CONFIGURACAO)
+    }
+
+    const emailLimpo = String(email ?? '').trim()
+    if (!emailLimpo) {
+      const erro = new Error('Informe o e-mail da sua conta.')
+      erro.code = 'auth/missing-email'
+      throw erro
+    }
+
+    auth.languageCode = 'pt-BR'
+    const configuracao =
+      typeof window !== 'undefined' ? { url: `${window.location.origin}/`, handleCodeInApp: false } : undefined
+
+    try {
+      await sendPasswordResetEmail(auth, emailLimpo, configuracao)
+    } catch (erro) {
+      const problemaNoRedirecionamento = [
+        'auth/unauthorized-continue-uri',
+        'auth/invalid-continue-uri',
+        'auth/missing-continue-uri',
+      ].includes(erro?.code)
+      if (configuracao && problemaNoRedirecionamento) {
+        await sendPasswordResetEmail(auth, emailLimpo)
+        return
+      }
+      throw erro
+    }
+  }
 
   const signIn = async (email, password) => {
     if (!auth || !isFirebaseConfigured) {
@@ -369,6 +410,7 @@ export function AuthProvider({ children }) {
         usernameAnterior: usernameConflito ? usernamePerfil : '',
         signIn,
         login: signIn,
+        redefinirSenha,
         signUp,
         logout,
         addSaldo,
